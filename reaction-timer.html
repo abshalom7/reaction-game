@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>REFLEX — Reaction Timer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=JetBrains+Mono:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0F172A;
+    --surface: #1E293B;
+    --surface2: #162032;
+    --text: #F1F5F9;
+    --ready: #10B981;
+    --waiting: #F59E0B;
+    --result: #3B82F6;
+    --error: #EF4444;
+    --muted: #94A3B8;
+    --border: rgba(148,163,184,0.12);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  #canvas-container {
+    position: fixed; inset: 0;
+    z-index: 0;
+  }
+
+  #canvas-container canvas { display: block; }
+
+  /* ── OVERLAY ── */
+  #overlay {
+    position: fixed; inset: 0;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    padding: 28px 24px 32px;
+    pointer-events: none;
+  }
+
+  /* ── HEADER ── */
+  header {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    pointer-events: auto;
+  }
+
+  .logo {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: clamp(1.1rem, 3vw, 1.4rem);
+    letter-spacing: 0.25em;
+    color: var(--text);
+  }
+
+  .logo span {
+    color: var(--ready);
+  }
+
+  /* ── STATS ROW ── */
+  .stats-bar {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+
+  .stat-chip {
+    background: rgba(30,41,59,0.75);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 76px;
+    transition: border-color 0.3s;
+  }
+
+  .stat-label {
+    font-size: 0.55rem;
+    letter-spacing: 0.15em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+
+  .stat-value {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.2;
+    margin-top: 1px;
+  }
+
+  #best-chip .stat-value { color: var(--ready); }
+
+  /* ── CENTER AREA ── */
+  #center {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    pointer-events: auto;
+    position: relative;
+  }
+
+  /* ── STATUS BADGE ── */
+  #status-badge {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: clamp(0.7rem, 2vw, 0.85rem);
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    padding: 6px 20px;
+    border-radius: 100px;
+    background: rgba(30,41,59,0.7);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    transition: all 0.35s ease;
+  }
+
+  #status-badge.ready   { color: var(--ready);   border-color: var(--ready);   box-shadow: 0 0 20px rgba(16,185,129,0.25); }
+  #status-badge.waiting { color: var(--waiting);  border-color: var(--waiting); box-shadow: 0 0 20px rgba(245,158,11,0.25); }
+  #status-badge.result  { color: var(--result);   border-color: var(--result);  box-shadow: 0 0 20px rgba(59,130,246,0.25); }
+  #status-badge.error   { color: var(--error);    border-color: var(--error);   box-shadow: 0 0 20px rgba(239,68,68,0.25); }
+
+  /* ── BIG NUMBER ── */
+  #big-number {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: clamp(3.5rem, 14vw, 8rem);
+    line-height: 1;
+    color: var(--text);
+    opacity: 0;
+    transform: scale(0.85);
+    transition: opacity 0.3s ease, transform 0.3s ease, color 0.3s ease;
+    text-align: center;
+    letter-spacing: -0.02em;
+  }
+
+  #big-number.show { opacity: 1; transform: scale(1); }
+  #big-number.result-color { color: var(--result); }
+  #big-number.error-color  { color: var(--error); }
+
+  #big-unit {
+    font-size: 0.22em;
+    color: var(--muted);
+    font-weight: 400;
+    vertical-align: super;
+  }
+
+  /* ── INSTRUCTION TEXT ── */
+  #instruction {
+    font-size: clamp(0.7rem, 2vw, 0.82rem);
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-align: center;
+    max-width: 360px;
+    line-height: 1.6;
+    min-height: 2.6em;
+    transition: color 0.3s;
+  }
+
+  /* ── ACTION BUTTON ── */
+  #action-btn {
+    position: relative;
+    padding: 16px 52px;
+    border-radius: 12px;
+    border: none;
+    cursor: pointer;
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: clamp(0.85rem, 2.5vw, 1rem);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    transition: all 0.2s ease;
+    outline: none;
+    overflow: hidden;
+  }
+
+  #action-btn::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: rgba(255,255,255,0.08);
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+
+  #action-btn:hover::before { opacity: 1; }
+  #action-btn:active { transform: scale(0.97); }
+
+  #action-btn.start {
+    background: var(--ready);
+    color: #0F172A;
+    box-shadow: 0 0 32px rgba(16,185,129,0.4), 0 4px 16px rgba(0,0,0,0.4);
+  }
+
+  #action-btn.waiting {
+    background: rgba(245,158,11,0.15);
+    color: var(--waiting);
+    border: 1px solid rgba(245,158,11,0.4);
+    box-shadow: 0 0 24px rgba(245,158,11,0.2);
+    cursor: default;
+  }
+
+  #action-btn.click-now {
+    background: var(--ready);
+    color: #0F172A;
+    box-shadow: 0 0 48px rgba(16,185,129,0.6), 0 4px 20px rgba(0,0,0,0.4);
+    animation: pulse-btn 0.6s ease-out;
+  }
+
+  #action-btn.again {
+    background: var(--result);
+    color: #fff;
+    box-shadow: 0 0 32px rgba(59,130,246,0.4), 0 4px 16px rgba(0,0,0,0.4);
+  }
+
+  #action-btn.error-btn {
+    background: rgba(239,68,68,0.15);
+    color: var(--error);
+    border: 1px solid rgba(239,68,68,0.4);
+    cursor: pointer;
+    box-shadow: 0 0 24px rgba(239,68,68,0.2);
+  }
+
+  @keyframes pulse-btn {
+    0%   { box-shadow: 0 0 0 0 rgba(16,185,129,0.7), 0 4px 20px rgba(0,0,0,0.4); }
+    100% { box-shadow: 0 0 48px rgba(16,185,129,0.6), 0 4px 20px rgba(0,0,0,0.4); }
+  }
+
+  /* ── RESET BUTTON ── */
+  #reset-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 8px;
+    padding: 8px 22px;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    transition: all 0.2s;
+    pointer-events: auto;
+  }
+
+  #reset-btn:hover {
+    border-color: var(--muted);
+    color: var(--text);
+  }
+
+  /* ── HISTORY LIST ── */
+  #history-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 500px;
+    min-height: 28px;
+    pointer-events: none;
+  }
+
+  .hist-pill {
+    background: rgba(30,41,59,0.6);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 3px 10px;
+    font-size: 0.65rem;
+    color: var(--muted);
+    backdrop-filter: blur(8px);
+    transition: all 0.3s;
+    animation: pill-in 0.3s ease;
+  }
+
+  .hist-pill.best { color: var(--ready); border-color: rgba(16,185,129,0.35); }
+  @keyframes pill-in { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+
+  /* ── BOTTOM ROW ── */
+  footer {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    pointer-events: auto;
+  }
+
+  .footer-info {
+    font-size: 0.6rem;
+    color: rgba(148,163,184,0.4);
+    letter-spacing: 0.1em;
+  }
+
+  /* ── VIGNETTE ── */
+  #vignette {
+    position: fixed; inset: 0;
+    pointer-events: none;
+    z-index: 5;
+    background: radial-gradient(ellipse at center, transparent 40%, rgba(9,15,32,0.65) 100%);
+  }
+
+  /* ── FLASH OVERLAY ── */
+  #flash {
+    position: fixed; inset: 0;
+    z-index: 9;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.05s;
+  }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width: 480px) {
+    .stats-bar { gap: 8px; }
+    .stat-chip { min-width: 60px; padding: 5px 10px; }
+    #action-btn { padding: 14px 36px; }
+    #overlay { padding: 20px 16px 24px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="canvas-container"></div>
+<div id="vignette"></div>
+<div id="flash"></div>
+
+<div id="overlay">
+  <!-- HEADER -->
+  <header>
+    <div class="logo">RE<span>FLEX</span></div>
+    <div class="stats-bar">
+      <div class="stat-chip">
+        <span class="stat-label">Attempts</span>
+        <span class="stat-value" id="stat-count">0</span>
+      </div>
+      <div class="stat-chip">
+        <span class="stat-label">Average</span>
+        <span class="stat-value" id="stat-avg">—</span>
+      </div>
+      <div class="stat-chip" id="best-chip">
+        <span class="stat-label">Best</span>
+        <span class="stat-value" id="stat-best">—</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- CENTER -->
+  <div id="center">
+    <div id="status-badge">STANDBY</div>
+
+    <div id="big-number"></div>
+
+    <div id="instruction">Press START to begin.<br>Click when the shape turns <strong style="color:var(--ready)">green</strong>.</div>
+
+    <button id="action-btn" class="start">START</button>
+
+    <div id="history-row"></div>
+  </div>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="footer-info">THREE.JS · VANILLA JS</div>
+    <button id="reset-btn">RESET SESSION</button>
+    <div class="footer-info">PORTFOLIO PROJECT</div>
+  </footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ═══════════════════════════════════════════════
+   STATE MACHINE
+═══════════════════════════════════════════════ */
+const STATES = { IDLE: 'idle', WAITING: 'waiting', READY: 'ready', RESULT: 'result', ERROR: 'error' };
+let state = STATES.IDLE;
+
+// Session data (no localStorage — JS variables only)
+const session = { attempts: [], best: null };
+
+let waitTimer = null;
+let startTime = null;
+
+/* ═══════════════════════════════════════════════
+   THREE.JS SCENE
+═══════════════════════════════════════════════ */
+const container = document.getElementById('canvas-container');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+container.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(0, 0, 7);
+
+// Lighting
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.2);
+scene.add(ambientLight);
+
+const keyLight = new THREE.DirectionalLight(0xffffff, 1.2);
+keyLight.position.set(5, 8, 5);
+keyLight.castShadow = true;
+scene.add(keyLight);
+
+const rimLight = new THREE.DirectionalLight(0x3B82F6, 0.8);
+rimLight.position.set(-5, -3, -5);
+scene.add(rimLight);
+
+const fillLight = new THREE.PointLight(0x10B981, 0, 15);
+fillLight.position.set(0, 0, 3);
+scene.add(fillLight);
+
+// Particle system (background stars)
+const starGeo = new THREE.BufferGeometry();
+const starCount = 300;
+const starPositions = new Float32Array(starCount * 3);
+for (let i = 0; i < starCount * 3; i++) {
+  starPositions[i] = (Math.random() - 0.5) * 40;
+}
+starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+const starMat = new THREE.PointsMaterial({ color: 0x94A3B8, size: 0.04, transparent: true, opacity: 0.4 });
+const stars = new THREE.Points(starGeo, starMat);
+scene.add(stars);
+
+// Main reaction object — icosahedron (distinctive, memorable)
+const mainGeo = new THREE.IcosahedronGeometry(1.4, 1);
+const mainMat = new THREE.MeshStandardMaterial({
+  color: 0x1E293B,
+  emissive: 0x0F172A,
+  roughness: 0.3,
+  metalness: 0.7,
+  wireframe: false,
+});
+const mainMesh = new THREE.Mesh(mainGeo, mainMat);
+mainMesh.castShadow = true;
+scene.add(mainMesh);
+
+// Wireframe overlay for the icosahedron
+const wireGeo = new THREE.IcosahedronGeometry(1.42, 1);
+const wireMat = new THREE.MeshBasicMaterial({ color: 0x3B82F6, wireframe: true, transparent: true, opacity: 0.15 });
+const wireMesh = new THREE.Mesh(wireGeo, wireMat);
+scene.add(wireMesh);
+
+// Orbiting ring
+const ringGeo = new THREE.TorusGeometry(2.1, 0.025, 8, 80);
+const ringMat = new THREE.MeshBasicMaterial({ color: 0x1E3A5F, transparent: true, opacity: 0.5 });
+const ring = new THREE.Mesh(ringGeo, ringMat);
+ring.rotation.x = Math.PI / 3;
+scene.add(ring);
+
+const ring2Geo = new THREE.TorusGeometry(2.5, 0.015, 8, 80);
+const ring2Mat = new THREE.MeshBasicMaterial({ color: 0x1E293B, transparent: true, opacity: 0.4 });
+const ring2 = new THREE.Mesh(ring2Geo, ring2Mat);
+ring2.rotation.x = -Math.PI / 5;
+ring2.rotation.y = Math.PI / 6;
+scene.add(ring2);
+
+// Satellite cubes
+const satellites = [];
+const satCount = 6;
+for (let i = 0; i < satCount; i++) {
+  const geo = new THREE.BoxGeometry(0.18, 0.18, 0.18);
+  const mat = new THREE.MeshStandardMaterial({ color: 0x3B82F6, emissive: 0x1a3a7a, metalness: 0.9, roughness: 0.2 });
+  const mesh = new THREE.Mesh(geo, mat);
+  const angle = (i / satCount) * Math.PI * 2;
+  const radius = 2.1;
+  mesh.position.set(Math.cos(angle) * radius, Math.sin(angle) * radius * Math.cos(Math.PI / 3), Math.sin(angle) * radius * Math.sin(Math.PI / 3));
+  scene.add(mesh);
+  satellites.push({ mesh, angle, speed: 0.005 + Math.random() * 0.005, radius });
+}
+
+// Color targets for animation
+let targetColor = new THREE.Color(0x1E293B);
+let currentEmissive = new THREE.Color(0x0F172A);
+let targetEmissive = new THREE.Color(0x0F172A);
+let targetWireOpacity = 0.15;
+let targetFillIntensity = 0;
+let targetRingColor = new THREE.Color(0x1E3A5F);
+
+let rotSpeedX = 0.003;
+let rotSpeedY = 0.005;
+let scaleTarget = 1.0;
+let shakeMag = 0;
+
+// Animation loop vars
+let time = 0;
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+function lerpColor(c, target, t) { c.r = lerp(c.r, target.r, t); c.g = lerp(c.g, target.g, t); c.b = lerp(c.b, target.b, t); }
+
+function animate() {
+  requestAnimationFrame(animate);
+  time += 0.01;
+
+  // Rotate main mesh
+  mainMesh.rotation.x += rotSpeedX;
+  mainMesh.rotation.y += rotSpeedY;
+  wireMesh.rotation.x = mainMesh.rotation.x;
+  wireMesh.rotation.y = mainMesh.rotation.y;
+
+  // Gentle float
+  mainMesh.position.y = Math.sin(time * 0.8) * 0.08;
+  wireMesh.position.y = mainMesh.position.y;
+
+  // Scale animation
+  const s = lerp(mainMesh.scale.x, scaleTarget, 0.08);
+  mainMesh.scale.setScalar(s);
+  wireMesh.scale.setScalar(s * 1.014);
+
+  // Shake (error state)
+  if (shakeMag > 0.001) {
+    mainMesh.position.x = (Math.random() - 0.5) * shakeMag;
+    mainMesh.position.z = (Math.random() - 0.5) * shakeMag;
+    shakeMag *= 0.85;
+  } else {
+    mainMesh.position.x = 0;
+    mainMesh.position.z = 0;
+    shakeMag = 0;
+  }
+
+  // Color transitions
+  lerpColor(mainMat.color, targetColor, 0.06);
+  lerpColor(mainMat.emissive, targetEmissive, 0.06);
+  wireMat.opacity = lerp(wireMat.opacity, targetWireOpacity, 0.06);
+  fillLight.intensity = lerp(fillLight.intensity, targetFillIntensity, 0.06);
+  lerpColor(ringMat.color, targetRingColor, 0.06);
+
+  // Satellites orbit
+  satellites.forEach(sat => {
+    sat.angle += sat.speed;
+    const r = sat.radius;
+    const tilt = Math.PI / 3;
+    sat.mesh.position.set(
+      Math.cos(sat.angle) * r,
+      Math.sin(sat.angle) * r * Math.cos(tilt),
+      Math.sin(sat.angle) * r * Math.sin(tilt)
+    );
+    sat.mesh.rotation.x += 0.02;
+    sat.mesh.rotation.y += 0.03;
+  });
+
+  // Rings slow rotation
+  ring.rotation.z += 0.002;
+  ring2.rotation.z -= 0.0015;
+
+  // Stars drift
+  stars.rotation.y += 0.0001;
+
+  // Camera subtle sway
+  camera.position.x = Math.sin(time * 0.15) * 0.3;
+  camera.position.y = Math.cos(time * 0.12) * 0.15;
+  camera.lookAt(0, 0, 0);
+
+  renderer.render(scene, camera);
+}
+
+animate();
+
+// Resize handler
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+/* ═══════════════════════════════════════════════
+   SCENE STATE HELPERS
+═══════════════════════════════════════════════ */
+function setSceneIdle() {
+  targetColor.set(0x1E293B);
+  targetEmissive.set(0x080d18);
+  targetWireOpacity = 0.12;
+  targetFillIntensity = 0;
+  targetRingColor.set(0x1E3A5F);
+  rotSpeedX = 0.003; rotSpeedY = 0.005;
+  scaleTarget = 1.0;
+  fillLight.color.set(0x10B981);
+  satellites.forEach(s => { s.mesh.material.color.set(0x3B82F6); s.mesh.material.emissive.set(0x1a3a7a); });
+}
+
+function setSceneWaiting() {
+  targetColor.set(0x241b0e);
+  targetEmissive.set(0x2a1800);
+  targetWireOpacity = 0.3;
+  targetFillIntensity = 1.5;
+  targetRingColor.set(0x4a3500);
+  rotSpeedX = 0.006; rotSpeedY = 0.009;
+  scaleTarget = 1.05;
+  fillLight.color.set(0xF59E0B);
+  satellites.forEach(s => { s.mesh.material.color.set(0xF59E0B); s.mesh.material.emissive.set(0x4a2f00); });
+}
+
+function setSceneReady() {
+  targetColor.set(0x0a2a1e);
+  targetEmissive.set(0x003d22);
+  targetWireOpacity = 0.6;
+  targetFillIntensity = 4;
+  targetRingColor.set(0x055c38);
+  rotSpeedX = 0.012; rotSpeedY = 0.018;
+  scaleTarget = 1.15;
+  fillLight.color.set(0x10B981);
+  satellites.forEach(s => { s.mesh.material.color.set(0x10B981); s.mesh.material.emissive.set(0x04502a); });
+}
+
+function setSceneResult() {
+  targetColor.set(0x0d1e40);
+  targetEmissive.set(0x0a1a3a);
+  targetWireOpacity = 0.4;
+  targetFillIntensity = 2;
+  targetRingColor.set(0x1a3270);
+  rotSpeedX = 0.003; rotSpeedY = 0.004;
+  scaleTarget = 0.95;
+  fillLight.color.set(0x3B82F6);
+  satellites.forEach(s => { s.mesh.material.color.set(0x3B82F6); s.mesh.material.emissive.set(0x0a2050); });
+}
+
+function setSceneError() {
+  targetColor.set(0x2e0808);
+  targetEmissive.set(0x3d0000);
+  targetWireOpacity = 0.5;
+  targetFillIntensity = 3;
+  targetRingColor.set(0x5c0000);
+  rotSpeedX = 0.002; rotSpeedY = 0.003;
+  scaleTarget = 0.9;
+  fillLight.color.set(0xEF4444);
+  shakeMag = 0.25;
+  satellites.forEach(s => { s.mesh.material.color.set(0xEF4444); s.mesh.material.emissive.set(0x500000); });
+}
+
+/* ═══════════════════════════════════════════════
+   UI HELPERS
+═══════════════════════════════════════════════ */
+const statusBadge   = document.getElementById('status-badge');
+const bigNumber     = document.getElementById('big-number');
+const instruction   = document.getElementById('instruction');
+const actionBtn     = document.getElementById('action-btn');
+const resetBtn      = document.getElementById('reset-btn');
+const statCount     = document.getElementById('stat-count');
+const statAvg       = document.getElementById('stat-avg');
+const statBest      = document.getElementById('stat-best');
+const historyRow    = document.getElementById('history-row');
+const flash         = document.getElementById('flash');
+
+function setStatus(text, cls) {
+  statusBadge.textContent = text;
+  statusBadge.className = cls || '';
+}
+
+function showBigNumber(val, colorClass) {
+  bigNumber.innerHTML = val ? `${val}<span id="big-unit">ms</span>` : '';
+  bigNumber.className = 'show' + (colorClass ? ` ${colorClass}` : '');
+}
+
+function hideBigNumber() {
+  bigNumber.className = '';
+  bigNumber.innerHTML = '';
+}
+
+function setActionBtn(text, cls, enabled) {
+  actionBtn.textContent = text;
+  actionBtn.className = cls;
+  actionBtn.disabled = !enabled;
+  actionBtn.style.pointerEvents = enabled ? 'auto' : 'none';
+}
+
+function flashScreen(color, intensity) {
+  flash.style.background = color;
+  flash.style.opacity = intensity;
+  setTimeout(() => { flash.style.opacity = 0; }, 80);
+}
+
+function updateStats() {
+  const n = session.attempts.length;
+  statCount.textContent = n;
+  if (n === 0) { statAvg.textContent = '—'; statBest.textContent = '—'; return; }
+  const avg = Math.round(session.attempts.reduce((a, b) => a + b, 0) / n);
+  statAvg.textContent = `${avg}ms`;
+  statBest.textContent = `${session.best}ms`;
+}
+
+function addHistoryPill(ms) {
+  const isBest = ms === session.best;
+  const pill = document.createElement('div');
+  pill.className = 'hist-pill' + (isBest ? ' best' : '');
+  pill.textContent = `${ms}ms`;
+  if (isBest && historyRow.firstChild) {
+    // Remove previous best highlight
+    historyRow.querySelectorAll('.hist-pill.best').forEach(p => p.classList.remove('best'));
+    pill.classList.add('best');
+  }
+  historyRow.appendChild(pill);
+  // Keep last 10
+  while (historyRow.children.length > 10) historyRow.removeChild(historyRow.firstChild);
+}
+
+/* ═══════════════════════════════════════════════
+   GAME LOGIC
+═══════════════════════════════════════════════ */
+function goIdle() {
+  state = STATES.IDLE;
+  clearTimeout(waitTimer);
+  startTime = null;
+  setSceneIdle();
+  setStatus('STANDBY');
+  hideBigNumber();
+  instruction.innerHTML = `Press START to begin.<br>Click when the shape turns <strong style="color:var(--ready)">green</strong>.`;
+  setActionBtn('START', 'start', true);
+}
+
+function goWaiting() {
+  state = STATES.WAITING;
+  setSceneWaiting();
+  setStatus('GET READY…', 'waiting');
+  hideBigNumber();
+  instruction.innerHTML = `Stay focused. Don't click yet —<br>wait for <strong style="color:var(--ready)">GREEN</strong>.`;
+  setActionBtn('WAITING…', 'waiting', false);
+
+  const delay = 1000 + Math.random() * 4000; // 1–5 seconds
+  waitTimer = setTimeout(goReady, delay);
+}
+
+function goReady() {
+  state = STATES.READY;
+  startTime = performance.now();
+  setSceneReady();
+  setStatus('CLICK NOW!', 'ready');
+  hideBigNumber();
+  instruction.innerHTML = `<strong style="color:var(--ready)">NOW! Click the button!</strong>`;
+  setActionBtn('CLICK!', 'click-now', true);
+  flashScreen('rgba(16,185,129,0.15)', 0.6);
+}
+
+function goResult(ms) {
+  state = STATES.RESULT;
+  setSceneResult();
+
+  // Record
+  session.attempts.push(ms);
+  if (session.best === null || ms < session.best) session.best = ms;
+  updateStats();
+  addHistoryPill(ms);
+
+  // Color‑code result
+  let ratingText, colorClass;
+  if (ms < 200)      { ratingText = 'SUPERHUMAN';  colorClass = 'result-color'; }
+  else if (ms < 250) { ratingText = 'EXCELLENT';   colorClass = 'result-color'; }
+  else if (ms < 320) { ratingText = 'GREAT';       colorClass = 'result-color'; }
+  else if (ms < 400) { ratingText = 'AVERAGE';     colorClass = ''; }
+  else               { ratingText = 'SLOW';        colorClass = ''; }
+
+  setStatus(ratingText, 'result');
+  showBigNumber(ms, colorClass);
+  instruction.innerHTML = `Average human reaction is ~250ms.<br>Click <strong>AGAIN</strong> for another attempt.`;
+  setActionBtn('AGAIN', 'again', true);
+  flashScreen('rgba(59,130,246,0.1)', 0.5);
+}
+
+function goError() {
+  state = STATES.ERROR;
+  clearTimeout(waitTimer);
+  startTime = null;
+  setSceneError();
+  setStatus('TOO EARLY!', 'error');
+  hideBigNumber();
+  instruction.innerHTML = `<strong style="color:var(--error)">False start!</strong> You clicked too soon.<br>Wait for the shape to turn green.`;
+  setActionBtn('TRY AGAIN', 'error-btn', true);
+  flashScreen('rgba(239,68,68,0.25)', 0.8);
+}
+
+/* ═══════════════════════════════════════════════
+   EVENT HANDLERS
+═══════════════════════════════════════════════ */
+actionBtn.addEventListener('click', () => {
+  switch (state) {
+    case STATES.IDLE:
+      goWaiting();
+      break;
+
+    case STATES.WAITING:
+      goError();
+      break;
+
+    case STATES.READY: {
+      const ms = Math.round(performance.now() - startTime);
+      goResult(ms);
+      break;
+    }
+
+    case STATES.RESULT:
+      goWaiting();
+      break;
+
+    case STATES.ERROR:
+      goWaiting();
+      break;
+  }
+});
+
+// Keyboard support (spacebar)
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' && !e.repeat) {
+    e.preventDefault();
+    actionBtn.click();
+  }
+});
+
+resetBtn.addEventListener('click', () => {
+  clearTimeout(waitTimer);
+  session.attempts = [];
+  session.best = null;
+  historyRow.innerHTML = '';
+  updateStats();
+  goIdle();
+});
+
+// Init
+goIdle();
+updateStats();
+</script>
+</body>
+</html>
